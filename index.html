@@ -88,6 +88,31 @@ label{display:block;font-weight:600;font-size:15px;margin-bottom:6px}
 .newtag{display:inline-block;font-size:12px;font-weight:600;color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 5px;margin-left:6px;vertical-align:middle}
 .feedback .newcode{color:var(--ink)}
 
+/* Colores por proveedor */
+.chip{font:inherit;font-weight:600;font-size:inherit;color:var(--ink);background:transparent;border:1px dashed var(--line);border-radius:5px;padding:6px 10px;min-height:40px;cursor:pointer;text-align:left;overflow-wrap:anywhere;max-width:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.chip:hover{border-color:var(--muted)}
+.chip.hc{color:#161B26;border:1px solid rgba(0,0,0,.18)}
+.picker{position:absolute;z-index:20;background:var(--card);border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,.22);padding:10px;width:min(300px,calc(100vw - 32px))}
+.picker[hidden]{display:none}
+.picker h3{margin:0 0 8px;font-size:14px;font-weight:600;color:var(--muted)}
+.picker .opts{display:grid;grid-template-columns:1fr;gap:4px}
+.picker button{display:flex;gap:10px;align-items:center;width:100%;font:inherit;font-size:15px;color:var(--ink);background:transparent;border:0;border-radius:4px;padding:6px 8px;min-height:40px;cursor:pointer;text-align:left}
+.picker button:hover,.picker button[aria-checked="true"]{background:var(--soft)}
+.picker button[aria-checked="true"]{font-weight:600}
+.sw{flex:none;display:inline-block;width:22px;height:22px;border-radius:4px;border:1px solid rgba(0,0,0,.18);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.sw.none{background:repeating-linear-gradient(135deg,transparent 0 4px,var(--line) 4px 6px)}
+.picker .edit{margin-top:6px;border-top:1px solid var(--line);padding-top:8px;color:var(--muted);font-size:14px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 12px;font-size:14px;color:var(--muted)}
+.legend[hidden]{display:none}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend .sw{width:16px;height:16px}
+.providers{margin:0 0 12px;background:var(--card);border:1px solid var(--line);border-radius:6px}
+.providers summary{cursor:pointer;font-weight:600;padding:10px 14px;min-height:44px;display:flex;align-items:center}
+.providers .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px 14px;padding:4px 14px 14px}
+.providers label{display:flex;gap:10px;align-items:center;margin:0;font-weight:400}
+.providers input{flex:1;min-width:0;font:inherit;font-size:16px;color:var(--ink);background:var(--soft);border:1px solid var(--line);border-radius:5px;padding:8px 10px;min-height:42px}
+.providers p{margin:0;padding:0 14px 4px;color:var(--muted);font-size:14px}
+
 .sheet{background:var(--card);border:1px solid var(--line);border-radius:6px;overflow:hidden}
 table{width:100%;border-collapse:collapse}
 th{text-align:left;font-weight:600;font-size:14px;color:var(--muted);padding:10px 14px;border-bottom:2px solid var(--ink)}
@@ -137,7 +162,7 @@ tr.flash td{animation:flash 1.1s ease-out}
   }
   body{background:#fff !important;color:#000}
   .wrap{padding:0 !important;max-width:none}
-  .entry,.lead,.tools,.saved,.after,.newtag,.toast,.xcell,th:last-child,.qcell .stepper,.empty{display:none !important}
+  .entry,.lead,.tools,.saved,.after,.providers,.picker,.newtag,.toast,.xcell,th:last-child,.qcell .stepper,.empty{display:none !important}
   .pq{display:inline;font-weight:700;font-size:16px}
   .pdate{display:block;color:var(--muted);font-size:14px;margin:4px 0 0}
   h1{margin-bottom:0}
@@ -151,6 +176,9 @@ tr.flash td{animation:flash 1.1s ease-out}
   th{padding:6px 10px;color:#000}
   .qcell{text-align:center}
   tr.flash td{animation:none !important;background:none !important}
+  .chip{border:0 !important;padding:2px 6px !important;min-height:0 !important}
+  .chip:not(.hc){padding:0 !important}
+  .legend{color:#000;margin:0 0 6px}
 }
 </style>
 </head>
@@ -188,8 +216,14 @@ tr.flash td{animation:flash 1.1s ease-out}
   <div class="tools">
     <button type="button" id="copy" class="tool">Copiar lista</button>
     <button type="button" id="print" class="tool">Imprimir / Guardar PDF</button>
+    <button type="button" id="sortColor" class="tool">Ordenar por color</button>
     <button type="button" id="clear" class="tool">Vaciar lista</button>
   </div>
+  <details id="providers" class="providers">
+    <summary>Colores y proveedores</summary>
+    <p>Toca el código de un producto para darle un color. Aquí puedes poner el nombre del proveedor de cada color (opcional).</p>
+    <div id="provGrid" class="grid"></div>
+  </details>
   <p id="saved" class="saved" aria-live="polite" hidden></p>
   <div id="after" class="after" role="region" aria-label="Después de guardar el PDF" hidden>
     <p>¿Guardaste la versión final en PDF? Si ya está lista, puedes vaciar la lista para empezar una nueva.</p>
@@ -199,6 +233,7 @@ tr.flash td{animation:flash 1.1s ease-out}
     </div>
   </div>
 
+  <div id="legend" class="legend" aria-label="Colores usados" hidden></div>
   <div class="sheet">
     <table>
       <thead><tr><th>Código</th><th>Cantidad</th><th>Descripción</th><th><span class="sr">Quitar</span></th></tr></thead>
@@ -206,6 +241,12 @@ tr.flash td{animation:flash 1.1s ease-out}
     </table>
     <div id="empty" class="empty" hidden>Todavía no hay productos. Escribe un código arriba y agrégalo.</div>
   </div>
+</div>
+
+<div id="picker" class="picker" role="dialog" aria-labelledby="pickerTitle" hidden>
+  <h3 id="pickerTitle"></h3>
+  <div class="opts" role="radiogroup" aria-labelledby="pickerTitle" id="pickerOpts"></div>
+  <div class="edit"><button type="button" id="pickerEdit">Editar nombres de proveedores…</button></div>
 </div>
 
 <div id="toast" class="toast" hidden><div><span id="toastMsg"></span><button type="button" id="toastBtn" hidden>Deshacer</button></div></div>
@@ -236,6 +277,40 @@ const MAX_CODE = 40;
 const normCode = c => String(c).trim().replace(/\s+/g, ' ').toUpperCase().slice(0, MAX_CODE);
 
 let items = [], ready = false, savedAt = null;
+
+// Paleta de colores (cada color = un proveedor). Los colores son claros para que el código se lea bien.
+const COLORS = [
+  { id: 'amarillo', name: 'Amarillo', hex: '#FFE066' },
+  { id: 'naranja',  name: 'Naranja',  hex: '#FFBE7A' },
+  { id: 'rojo',     name: 'Rojo',     hex: '#FF9E97' },
+  { id: 'rosa',     name: 'Rosa',     hex: '#F7AEDB' },
+  { id: 'morado',   name: 'Morado',   hex: '#CDB8FF' },
+  { id: 'azul',     name: 'Azul',     hex: '#9FCBFF' },
+  { id: 'verde',    name: 'Verde',    hex: '#A3E2AC' },
+  { id: 'gris',     name: 'Gris',     hex: '#CDD3DC' },
+];
+const colorById = new Map(COLORS.map(c => [c.id, c]));
+const PROV_REC = 'proveedores', PROV_KEY = 'guia-compras-proveedores';
+let providers = {};   // { colorId: 'Nombre del proveedor' }
+const colorLabel = id => { const c = colorById.get(id); return c ? (providers[id] ? providers[id] + ' (' + c.name.toLowerCase() + ')' : c.name) : ''; };
+const providerName = id => { const c = colorById.get(id); return c ? (providers[id] || c.name) : ''; };
+
+function cleanProviders(raw) {
+  const out = {};
+  if (raw && typeof raw === 'object') for (const c of COLORS) {
+    const v = typeof raw[c.id] === 'string' ? raw[c.id].trim().slice(0, 40) : '';
+    if (v) out[c.id] = v;
+  }
+  return out;
+}
+let provChain = Promise.resolve();
+function saveProviders() {
+  const snap = { ...providers };
+  provChain = provChain.then(async () => {
+    const ok = await idb('readwrite', st => { st.put(snap, PROV_REC); });
+    if (!ok) { try { localStorage.setItem(PROV_KEY, JSON.stringify(snap)); } catch (e) {} }
+  });
+}
 
 const dbReady = new Promise(resolve => {
   try {
@@ -269,7 +344,9 @@ function cleanItems(raw) {
     const k = strip(code);
     if (!code || seen.has(k)) continue;
     seen.add(k);
-    out.push({ code, qty: Math.min(99999, Math.floor(Number(x.qty))) });
+    const it = { code, qty: Math.min(99999, Math.floor(Number(x.qty))) };
+    if (colorById.has(x.color)) it.color = x.color;
+    out.push(it);
   }
   return out;
 }
@@ -283,6 +360,9 @@ async function load() {
   } else if (legacy) {
     try { items = cleanItems(JSON.parse(legacy)); } catch (e) { items = []; }
   }
+  let prov = await idb('readonly', st => st.get(PROV_REC));
+  if (!prov) { try { prov = JSON.parse(localStorage.getItem(PROV_KEY) || 'null'); } catch (e) {} }
+  providers = cleanProviders(prov);
   ready = true;
   // Migra la lista antigua de localStorage a IndexedDB.
   if (legacy && !(rec && Array.isArray(rec.items))) {
@@ -295,7 +375,7 @@ async function load() {
 
 let writeChain = Promise.resolve();
 function persist() {
-  const snapshot = { items: items.map(x => ({ code: x.code, qty: x.qty })), savedAt: Date.now() };
+  const snapshot = { items: items.map(x => x.color ? { code: x.code, qty: x.qty, color: x.color } : { code: x.code, qty: x.qty }), savedAt: Date.now() };
   writeChain = writeChain.then(async () => {
     let ok = await idb('readwrite', st => { st.put(snapshot, REC); });
     if (!ok) { try { localStorage.setItem(KEY, JSON.stringify(snapshot.items)); ok = true; } catch (e) {} }
@@ -403,8 +483,10 @@ function addCurrent() {
 function render(flashCode) {
   rows.innerHTML = items.map(it => {
     const p = byCode.get(strip(it.code));
+    const c = colorById.get(it.color);
     return '<tr data-code="' + esc(it.code) + '">' +
-      '<td class="code">' + esc(it.code) + '</td>' +
+      '<td class="code"><button type="button" class="chip' + (c ? ' hc' : '') + '" data-act="color"' + (c ? ' style="background:' + c.hex + '"' : '') +
+        ' aria-haspopup="dialog" aria-label="' + esc(it.code) + (c ? ', color ' + esc(colorLabel(it.color)) : ', sin color') + '. Cambiar color">' + esc(it.code) + '</button></td>' +
       '<td class="qcell"><span class="pq">' + it.qty + '</span><div class="stepper">' +
         '<button type="button" data-act="dec" aria-label="Restar una unidad de ' + esc(it.code) + '">−</button>' +
         '<input class="field" type="number" inputmode="numeric" min="1" max="99999" value="' + it.qty + '" aria-label="Cantidad de ' + esc(it.code) + '">' +
@@ -416,6 +498,8 @@ function render(flashCode) {
   }).join('');
   emptyEl.hidden = items.length > 0;
   if (!items.length) $('after').hidden = true;
+  renderLegend();
+  $('sortColor').disabled = !items.some(x => x.color);
   showSaved();
   copyBtn.disabled = clearBtn.disabled = printBtn.disabled = items.length === 0;
   const units = items.reduce((a, x) => a + x.qty, 0);
@@ -443,6 +527,7 @@ rows.addEventListener('click', e => {
   const i = items.findIndex(x => x.code === tr.dataset.code);
   if (i < 0) return;
   const act = btn.dataset.act;
+  if (act === 'color') { openPicker(btn, items[i].code); return; }
   if (act === 'del') {
     lastRemoved = { item: items[i], index: i };
     items.splice(i, 1); save(); render();
@@ -498,9 +583,10 @@ addBtn.addEventListener('click', addCurrent);
 
 copyBtn.addEventListener('click', async () => {
   if (!items.length) return;
-  const lines = ['Código\tCantidad\tDescripción'].concat(items.map(it => {
+  const withProv = items.some(x => x.color);
+  const lines = ['Código\tCantidad\tDescripción' + (withProv ? '\tProveedor' : '')].concat(items.map(it => {
     const p = byCode.get(strip(it.code));
-    return it.code + '\t' + it.qty + '\t' + (p ? p.desc : '');
+    return it.code + '\t' + it.qty + '\t' + (p ? p.desc : '') + (withProv ? '\t' + providerName(it.color) : '');
   }));
   const text = lines.join('\n');
   let ok = false;
@@ -545,8 +631,105 @@ printBtn.addEventListener('click', () => {
 $('afterClear').addEventListener('click', () => { $('after').hidden = true; resetList(); q.focus(); });
 $('afterKeep').addEventListener('click', () => { $('after').hidden = true; q.focus(); });
 
-setQty(1); updateEntry(); render();
-load().then(() => { render(); updateEntry(); });
+// ---- Colores / proveedores ----
+const picker = $('picker'), pickerOpts = $('pickerOpts');
+let pickerCode = null, pickerAnchor = null;
+
+function openPicker(anchor, code) {
+  const it = items.find(x => x.code === code);
+  if (!it) return;
+  pickerCode = code; pickerAnchor = anchor;
+  $('pickerTitle').textContent = 'Color para ' + code;
+  const opts = [{ id: '', name: 'Sin color' }].concat(COLORS);
+  pickerOpts.innerHTML = opts.map(c => {
+    const on = (it.color || '') === c.id;
+    const label = c.id ? (providers[c.id] ? esc(providers[c.id]) + ' <span style="color:var(--muted)">· ' + esc(c.name) + '</span>' : esc(c.name)) : 'Sin color';
+    return '<button type="button" role="radio" aria-checked="' + on + '" data-color="' + c.id + '">' +
+      '<span class="sw' + (c.id ? '' : ' none') + '"' + (c.id ? ' style="background:' + c.hex + '"' : '') + ' aria-hidden="true"></span><span>' + label + '</span></button>';
+  }).join('');
+  picker.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  const w = picker.offsetWidth, h = picker.offsetHeight;
+  let left = Math.min(r.left, document.documentElement.clientWidth - w - 16);
+  left = Math.max(16, left);
+  let top = r.bottom + 6;
+  if (top + h > window.innerHeight - 8 && r.top - h - 6 > 8) top = r.top - h - 6;
+  picker.style.left = (left + window.scrollX) + 'px';
+  picker.style.top = (top + window.scrollY) + 'px';
+  (pickerOpts.querySelector('[aria-checked="true"]') || pickerOpts.querySelector('button')).focus();
+}
+function closePicker(refocus) {
+  if (picker.hidden) return;
+  picker.hidden = true;
+  if (refocus && pickerCode) {
+    const tr = [...rows.children].find(r => r.dataset.code === pickerCode);
+    const b = tr && tr.querySelector('.chip');
+    if (b) b.focus();
+  }
+  pickerCode = null; pickerAnchor = null;
+}
+pickerOpts.addEventListener('click', e => {
+  const b = e.target.closest('button[data-color]');
+  if (!b) return;
+  const it = items.find(x => x.code === pickerCode);
+  if (it) {
+    const id = b.dataset.color;
+    if (id) it.color = id; else delete it.color;
+    save(); render();
+  }
+  closePicker(true);
+});
+pickerOpts.addEventListener('keydown', e => {
+  const btns = [...pickerOpts.querySelectorAll('button')];
+  const i = btns.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); btns[(i + 1) % btns.length].focus(); }
+  else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); btns[(i - 1 + btns.length) % btns.length].focus(); }
+});
+picker.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); closePicker(true); } });
+document.addEventListener('mousedown', e => { if (!picker.hidden && !picker.contains(e.target) && e.target !== pickerAnchor) closePicker(false); });
+document.addEventListener('touchstart', e => { if (!picker.hidden && !picker.contains(e.target) && e.target !== pickerAnchor) closePicker(false); }, { passive: true });
+window.addEventListener('resize', () => closePicker(false));
+$('pickerEdit').addEventListener('click', () => {
+  closePicker(false);
+  const d = $('providers'); d.open = true;
+  d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const first = d.querySelector('input'); if (first) setTimeout(() => first.focus({ preventScroll: true }), 300);
+});
+
+function renderLegend() {
+  const el = $('legend');
+  const counts = new Map();
+  for (const it of items) if (it.color) counts.set(it.color, (counts.get(it.color) || 0) + 1);
+  if (!counts.size) { el.hidden = true; el.innerHTML = ''; return; }
+  el.innerHTML = COLORS.filter(c => counts.has(c.id)).map(c =>
+    '<span><span class="sw" style="background:' + c.hex + '" aria-hidden="true"></span>' + esc(providerName(c.id)) + ' (' + counts.get(c.id) + ')</span>').join('');
+  el.hidden = false;
+}
+
+function renderProviders() {
+  $('provGrid').innerHTML = COLORS.map(c =>
+    '<label><span class="sw" style="background:' + c.hex + '" aria-hidden="true"></span>' +
+    '<span class="sr">Proveedor color ' + esc(c.name) + '</span>' +
+    '<input type="text" maxlength="40" data-color="' + c.id + '" placeholder="' + esc(c.name) + ' — proveedor" value="' + esc(providers[c.id] || '') + '"></label>').join('');
+}
+$('provGrid').addEventListener('input', e => {
+  const id = e.target.dataset.color;
+  if (!id) return;
+  const v = e.target.value.trim();
+  if (v) providers[id] = v; else delete providers[id];
+  saveProviders(); renderLegend();
+});
+$('provGrid').addEventListener('change', () => render());
+
+$('sortColor').addEventListener('click', () => {
+  const order = new Map(COLORS.map((c, i) => [c.id, i]));
+  const rank = it => it.color ? order.get(it.color) : COLORS.length;
+  items = items.map((it, i) => [it, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(x => x[0]);
+  save(); render(); showToast('Lista ordenada por color.');
+});
+
+setQty(1); updateEntry(); render(); renderProviders();
+load().then(() => { render(); updateEntry(); renderProviders(); });
 </script>
 </body>
 </html>
