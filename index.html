@@ -88,6 +88,28 @@ label{display:block;font-weight:600;font-size:15px;margin-bottom:6px}
 .newtag{display:inline-block;font-size:12px;font-weight:600;color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 5px;margin-left:6px;vertical-align:middle}
 .feedback .newcode{color:var(--ink)}
 
+/* Productos similares */
+.simrow{margin-top:12px}
+.simrow .tool{width:100%}
+.simpanel{margin-top:14px;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.simpanel[hidden]{display:none}
+.simhead{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:10px 12px 10px 14px;background:var(--soft);border-bottom:1px solid var(--line)}
+.simhead h3{margin:0;font-size:16px;font-weight:600;line-height:1.3}
+.simhead h3 span{display:block;font-weight:400;color:var(--muted);font-size:14px;overflow-wrap:anywhere}
+.simclose{flex:none;width:40px;height:40px;font-size:22px;line-height:1;color:var(--muted);background:transparent;border:0;border-radius:5px;cursor:pointer}
+.simclose:hover{background:var(--card);color:var(--ink)}
+.simlist{list-style:none;margin:0;padding:0;max-height:min(60vh,520px);overflow-y:auto}
+.simlist li{display:flex;gap:8px;align-items:center;border-top:1px solid var(--line);padding:4px 8px 4px 0}
+.simlist li:first-child{border-top:0}
+.simpick{flex:1;min-width:0;display:grid;grid-template-columns:minmax(84px,auto) 1fr;gap:2px 14px;align-items:baseline;font:inherit;color:var(--ink);background:transparent;border:0;border-radius:4px;padding:8px 6px 8px 14px;min-height:48px;cursor:pointer;text-align:left}
+.simpick:hover{background:var(--soft)}
+.simpick .c{font-weight:600;overflow-wrap:anywhere}
+.simpick .d{color:var(--muted);font-size:15px;overflow-wrap:anywhere}
+.simpick .inlist{grid-column:2;font-size:13px;font-weight:600;color:var(--ok)}
+.simadd{flex:none;font:inherit;font-weight:600;font-size:15px;color:var(--accent-ink);background:var(--accent);border:0;border-radius:5px;min-height:40px;padding:0 12px;cursor:pointer;white-space:nowrap}
+.simempty{padding:16px 14px;color:var(--muted)}
+@media (max-width:560px){ .simpick{grid-template-columns:1fr} .simpick .inlist{grid-column:1} }
+
 /* Colores por proveedor */
 .chip{font:inherit;font-weight:600;font-size:inherit;color:var(--ink);background:transparent;border:1px dashed var(--line);border-radius:5px;padding:6px 10px;min-height:40px;cursor:pointer;text-align:left;overflow-wrap:anywhere;max-width:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .chip:hover{border-color:var(--muted)}
@@ -207,6 +229,16 @@ tr.flash td{animation:flash 1.1s ease-out}
       </div>
       <button type="button" id="add" class="btn-add" disabled>Agregar a la lista</button>
     </div>
+    <div class="simrow">
+      <button type="button" id="simBtn" class="tool" disabled>Ver productos similares</button>
+    </div>
+    <section id="simPanel" class="simpanel" aria-labelledby="simTitle" hidden>
+      <div class="simhead">
+        <h3 id="simTitle"></h3>
+        <button type="button" id="simClose" class="simclose" aria-label="Cerrar productos similares">×</button>
+      </div>
+      <ul id="simList" class="simlist"></ul>
+    </section>
   </section>
 
   <div class="listhead">
@@ -268,6 +300,7 @@ const $ = id => document.getElementById(id);
 const q = $('q'), qty = $('qty'), addBtn = $('add'), sug = $('sug'), feedback = $('feedback');
 const rows = $('rows'), emptyEl = $('empty'), summary = $('summary');
 const copyBtn = $('copy'), clearBtn = $('clear'), printBtn = $('print');
+const simBtn = $('simBtn'), simPanel = $('simPanel'), simList = $('simList');
 const toast = $('toast'), toastMsg = $('toastMsg'), toastBtn = $('toastBtn');
 
 // ---- Guardado en el navegador (IndexedDB, con localStorage como respaldo) ----
@@ -431,6 +464,8 @@ function updateEntry() {
   q.setAttribute('aria-expanded', 'false');
   q.removeAttribute('aria-activedescendant');
   addBtn.disabled = !ready || !v;
+  simBtn.disabled = !exact;
+  simBtn.textContent = exact ? 'Ver productos similares a ' + exact.code : 'Ver productos similares';
   addBtn.textContent = exact || !v ? 'Agregar a la lista' : 'Agregar código nuevo';
 
   if (!v) {
@@ -499,6 +534,7 @@ function render(flashCode) {
   emptyEl.hidden = items.length > 0;
   if (!items.length) $('after').hidden = true;
   renderLegend();
+  if (typeof renderSimilar === 'function' && !simPanel.hidden) renderSimilar();
   $('sortColor').disabled = !items.some(x => x.color);
   showSaved();
   copyBtn.disabled = clearBtn.disabled = printBtn.disabled = items.length === 0;
@@ -630,6 +666,102 @@ printBtn.addEventListener('click', () => {
 });
 $('afterClear').addEventListener('click', () => { $('after').hidden = true; resetList(); q.focus(); });
 $('afterKeep').addEventListener('click', () => { $('after').hidden = true; q.focus(); });
+
+// ---- Productos similares ----
+// Compara descripciones: el tipo de producto (primera palabra significativa, p. ej. LLAVE, CLAVO,
+// ENCHUFE) pesa más; las demás palabras pesan según lo raras que son en el catálogo (TF-IDF);
+// números y colores pesan menos; y los códigos de la misma familia (9066-16, 9066-18) suman.
+const SIM_STOP = new Set('de del la las el los y e o u a al en con sin para por p tipo x c cu un una pcs pc pzs pza piezas pieza unidades unid und set kit juego jgo blister'.split(' '));
+const SIM_COLORS = new Set('rojo blanco negro azul verde amarillo naranja gris cafe rosado morado transparente dorado plateado celeste'.split(' '));
+function simStem(w) {
+  if (w.endsWith('ces')) w = w.slice(0, -3) + 'z';                                   // luces → luz
+  else if (w.length > 4 && w.endsWith('es') && !/[aeiou]es$/.test(w)) w = w.slice(0, -2); // interruptores → interruptor
+  else if (w.length > 3 && w.endsWith('s')) w = w.slice(0, -1);                     // clavos → clavo
+  if (w.length > 4 && /[ao]$/.test(w)) w = w.slice(0, -1);                          // roja/rojo → roj
+  return w;
+}
+function simTokens(desc) {
+  const out = [];
+  for (const raw of strip(desc).split(/[^a-z0-9]+/)) {
+    if (!raw || SIM_STOP.has(raw)) continue;
+    if (/\d/.test(raw)) { out.push({ t: '#' + raw, f: 0.5 }); continue; }
+    if (raw.length < 2) continue;
+    const t = simStem(raw);
+    out.push({ t, f: SIM_COLORS.has(raw) || SIM_COLORS.has(t + 'o') ? 0.4 : 1, word: true });
+  }
+  return out;
+}
+let simDocs = null;
+function buildSimIndex() {
+  const df = new Map();
+  const docs = index.map(it => {
+    const tk = simTokens(it.desc || '');
+    const type = (tk.find(x => x.word) || {}).t || null;
+    for (const t of new Set(tk.map(x => x.t))) df.set(t, (df.get(t) || 0) + 1);
+    return { it, tk, type, fam: it.kc.replace(/[^a-z0-9]+[a-z0-9]*$/, '') };
+  });
+  const N = docs.length;
+  for (const d of docs) {
+    d.w = new Map();
+    for (const x of d.tk) if (!d.w.has(x.t)) d.w.set(x.t, Math.log(1 + N / df.get(x.t)) * x.f * (x.t === d.type ? 2 : 1));
+    d.norm = Math.sqrt([...d.w.values()].reduce((a, v) => a + v * v, 0)) || 1;
+  }
+  simDocs = new Map(docs.map(d => [d.it.kc, d]));
+}
+function findSimilar(item, n = 15) {
+  if (!simDocs) buildSimIndex();
+  const a = simDocs.get(item.kc);
+  if (!a || !a.w.size) return [];
+  const out = [];
+  for (const b of simDocs.values()) {
+    if (b === a) continue;
+    let dot = 0;
+    for (const [t, wa] of a.w) { const wb = b.w.get(t); if (wb) dot += wa * wb; }
+    if (!dot) continue;
+    let sc = dot / (a.norm * b.norm);
+    if (a.type && a.type === b.type) sc += 0.15;
+    if (a.fam.length >= 3 && a.fam === b.fam) sc += 0.1;
+    if (sc >= 0.2) out.push([sc, b.it]);
+  }
+  out.sort((x, y) => y[0] - x[0] || x[1].kc.localeCompare(y[1].kc, 'es', { numeric: true }));
+  return out.slice(0, n).map(x => x[1]);
+}
+
+let simFor = null, simResults = [];
+function showSimilar(item) {
+  simFor = item;
+  simResults = findSimilar(item);
+  $('simTitle').innerHTML = 'Similares a ' + esc(item.code) + '<span>' + esc(item.desc || '') + '</span>';
+  renderSimilar();
+  simPanel.hidden = false;
+  simPanel.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'nearest' });
+}
+function renderSimilar() {
+  if (!simFor) return;
+  if (!simResults.length) { simList.innerHTML = '<li class="simempty">No encontramos productos parecidos a este.</li>'; return; }
+  simList.innerHTML = simResults.map((m, i) => {
+    const inList = items.find(x => strip(x.code) === m.kc);
+    return '<li><button type="button" class="simpick" data-i="' + i + '" aria-label="Elegir ' + esc(m.code) + ': ' + esc(m.desc) + '">' +
+      '<span class="c">' + esc(m.code) + '</span><span class="d">' + esc(m.desc || 'Sin descripción') + '</span>' +
+      (inList ? '<span class="inlist">✓ En tu lista (' + inList.qty + ')</span>' : '') + '</button>' +
+      '<button type="button" class="simadd" data-add="' + i + '" aria-label="Agregar 1 unidad de ' + esc(m.code) + '">+ 1</button></li>';
+  }).join('');
+}
+simBtn.addEventListener('click', () => { if (exact) showSimilar(exact); });
+$('simClose').addEventListener('click', () => { simPanel.hidden = true; simFor = null; simBtn.focus(); });
+simList.addEventListener('click', e => {
+  const add = e.target.closest('button[data-add]');
+  if (add) {
+    const m = simResults[Number(add.dataset.add)];
+    const found = items.find(x => strip(x.code) === m.kc);
+    if (found) { found.qty = Math.min(99999, found.qty + 1); showToast('Ahora son ' + found.qty + ' unidades de ' + found.code + '.'); }
+    else { items.unshift({ code: m.code, qty: 1 }); showToast('Agregado: 1 × ' + m.code + '.'); }
+    save(); render(m.code);
+    return;
+  }
+  const pk = e.target.closest('button[data-i]');
+  if (pk) pick(simResults[Number(pk.dataset.i)]);
+});
 
 // ---- Colores / proveedores ----
 const picker = $('picker'), pickerOpts = $('pickerOpts');
