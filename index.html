@@ -77,6 +77,16 @@ label{display:block;font-weight:600;font-size:15px;margin-bottom:6px}
 .tool{font:inherit;font-weight:600;font-size:15px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:5px;min-height:44px;padding:0 16px;cursor:pointer}
 .tool:disabled{color:var(--muted);cursor:not-allowed;opacity:.6}
 .tool.armed{background:var(--warn);border-color:var(--warn);color:#fff}
+.saved{margin:-4px 0 12px;color:var(--muted);font-size:14px}
+.saved[hidden]{display:none}
+.saved .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px;vertical-align:middle}
+.after{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;background:var(--card);border:2px solid var(--accent);border-radius:6px;padding:12px 14px;margin:0 0 12px}
+.after[hidden]{display:none}
+.after p{margin:0;font-weight:500;flex:1 1 260px}
+.after div{display:flex;gap:8px;flex-wrap:wrap}
+.tool.danger{background:var(--warn);border-color:var(--warn);color:#fff}
+.newtag{display:inline-block;font-size:12px;font-weight:600;color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 5px;margin-left:6px;vertical-align:middle}
+.feedback .newcode{color:var(--ink)}
 
 .sheet{background:var(--card);border:1px solid var(--line);border-radius:6px;overflow:hidden}
 table{width:100%;border-collapse:collapse}
@@ -127,7 +137,7 @@ tr.flash td{animation:flash 1.1s ease-out}
   }
   body{background:#fff !important;color:#000}
   .wrap{padding:0 !important;max-width:none}
-  .entry,.lead,.tools,.toast,.xcell,th:last-child,.qcell .stepper,.empty{display:none !important}
+  .entry,.lead,.tools,.saved,.after,.newtag,.toast,.xcell,th:last-child,.qcell .stepper,.empty{display:none !important}
   .pq{display:inline;font-weight:700;font-size:16px}
   .pdate{display:block;color:var(--muted);font-size:14px;margin:4px 0 0}
   h1{margin-bottom:0}
@@ -180,6 +190,14 @@ tr.flash td{animation:flash 1.1s ease-out}
     <button type="button" id="print" class="tool">Imprimir / Guardar PDF</button>
     <button type="button" id="clear" class="tool">Vaciar lista</button>
   </div>
+  <p id="saved" class="saved" aria-live="polite" hidden></p>
+  <div id="after" class="after" role="region" aria-label="Después de guardar el PDF" hidden>
+    <p>¿Guardaste la versión final en PDF? Si ya está lista, puedes vaciar la lista para empezar una nueva.</p>
+    <div>
+      <button type="button" id="afterClear" class="tool danger">Sí, vaciar lista</button>
+      <button type="button" id="afterKeep" class="tool">No, seguir editando</button>
+    </div>
+  </div>
 
   <div class="sheet">
     <table>
@@ -211,14 +229,92 @@ const rows = $('rows'), emptyEl = $('empty'), summary = $('summary');
 const copyBtn = $('copy'), clearBtn = $('clear'), printBtn = $('print');
 const toast = $('toast'), toastMsg = $('toastMsg'), toastBtn = $('toastBtn');
 
-const KEY = 'guia-compras-v1';
-let items = [];
-try {
-  const raw = JSON.parse(localStorage.getItem(KEY) || '[]');
-  if (Array.isArray(raw)) items = raw.filter(x => x && byCode.has(strip(String(x.code))) && x.qty >= 1)
-    .map(x => ({ code: byCode.get(strip(String(x.code))).code, qty: Math.floor(x.qty) }));
-} catch (e) { items = []; }
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} };
+// ---- Guardado en el navegador (IndexedDB, con localStorage como respaldo) ----
+const KEY = 'guia-compras-v1';           // clave antigua en localStorage (se migra)
+const DB_NAME = 'guia-compras', STORE = 'lista', REC = 'actual';
+const MAX_CODE = 40;
+const normCode = c => String(c).trim().replace(/\s+/g, ' ').toUpperCase().slice(0, MAX_CODE);
+
+let items = [], ready = false, savedAt = null;
+
+const dbReady = new Promise(resolve => {
+  try {
+    if (!window.indexedDB) return resolve(null);
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => resolve(null);
+    req.onblocked = () => resolve(null);
+  } catch (e) { resolve(null); }
+});
+
+function idb(mode, fn) {
+  return dbReady.then(db => db && new Promise(resolve => {
+    try {
+      const tx = db.transaction(STORE, mode);
+      const r = fn(tx.objectStore(STORE));
+      tx.oncomplete = () => resolve(r ? r.result : true);
+      tx.onerror = tx.onabort = () => resolve(undefined);
+    } catch (e) { resolve(undefined); }
+  }));
+}
+
+function cleanItems(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set(), out = [];
+  for (const x of raw) {
+    if (!x || x.code == null || !(Number(x.qty) >= 1)) continue;
+    const known = byCode.get(strip(String(x.code)));
+    const code = known ? known.code : normCode(x.code);
+    const k = strip(code);
+    if (!code || seen.has(k)) continue;
+    seen.add(k);
+    out.push({ code, qty: Math.min(99999, Math.floor(Number(x.qty))) });
+  }
+  return out;
+}
+
+async function load() {
+  let rec = await idb('readonly', st => st.get(REC));
+  let legacy = null;
+  try { legacy = localStorage.getItem(KEY); } catch (e) {}
+  if (rec && Array.isArray(rec.items)) {
+    items = cleanItems(rec.items); savedAt = rec.savedAt || null;
+  } else if (legacy) {
+    try { items = cleanItems(JSON.parse(legacy)); } catch (e) { items = []; }
+  }
+  ready = true;
+  // Migra la lista antigua de localStorage a IndexedDB.
+  if (legacy && !(rec && Array.isArray(rec.items))) {
+    const ok = await persist();
+    if (ok) { try { localStorage.removeItem(KEY); } catch (e) {} }
+  }
+  // Pide al navegador que no borre estos datos por falta de espacio.
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+}
+
+let writeChain = Promise.resolve();
+function persist() {
+  const snapshot = { items: items.map(x => ({ code: x.code, qty: x.qty })), savedAt: Date.now() };
+  writeChain = writeChain.then(async () => {
+    let ok = await idb('readwrite', st => { st.put(snapshot, REC); });
+    if (!ok) { try { localStorage.setItem(KEY, JSON.stringify(snapshot.items)); ok = true; } catch (e) {} }
+    if (ok) { savedAt = snapshot.savedAt; showSaved(); }
+    return ok;
+  });
+  return writeChain;
+}
+const save = () => { if (ready) persist(); };
+
+function showSaved() {
+  const el = $('saved');
+  if (!items.length || !savedAt) { el.hidden = true; return; }
+  const d = new Date(savedAt), now = new Date();
+  const time = d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+  const day = d.toDateString() === now.toDateString() ? 'hoy' : d.toLocaleDateString('es', { day: 'numeric', month: 'long' });
+  el.innerHTML = '<span class="dot" aria-hidden="true"></span>Lista guardada en este dispositivo · ' + esc(day) + ', ' + esc(time) + '. Puedes cerrar la página y seguir después.';
+  el.hidden = false;
+}
 
 let matches = [], active = -1, exact = null, lastRemoved = null, toastTimer = null, armedTimer = null;
 
@@ -254,7 +350,8 @@ function updateEntry() {
   sug.hidden = true; sug.innerHTML = '';
   q.setAttribute('aria-expanded', 'false');
   q.removeAttribute('aria-activedescendant');
-  addBtn.disabled = !exact;
+  addBtn.disabled = !ready || !v;
+  addBtn.textContent = exact || !v ? 'Agregar a la lista' : 'Agregar código nuevo';
 
   if (!v) {
     feedback.innerHTML = '<span class="hint">Puedes buscar por código o por parte de la descripción.</span>';
@@ -266,10 +363,10 @@ function updateEntry() {
   }
   matches = search(v);
   if (!matches.length) {
-    feedback.innerHTML = '<span class="none">No hay productos con “' + esc(v) + '”. Revisa el código o prueba con otra palabra.</span>';
+    feedback.innerHTML = '<span class="newcode">“' + esc(normCode(v)) + '” no está en el catálogo. Puedes agregarlo igual, sin descripción.</span>';
     return;
   }
-  feedback.innerHTML = '<span class="hint">Elige un producto de la lista.</span>';
+  feedback.innerHTML = '<span class="hint">Elige un producto de la lista, o agrega “' + esc(normCode(v)) + '” como código nuevo.</span>';
   sug.innerHTML = matches.map((m, i) =>
     '<li role="option" id="opt' + i + '" data-i="' + i + '" aria-selected="false"><span class="c">' + esc(m.code) + '</span><span class="d">' + (m.desc ? esc(m.desc) : 'Sin descripción') + '</span></li>').join('');
   sug.hidden = false;
@@ -291,12 +388,14 @@ function pick(m) {
 }
 
 function addCurrent() {
-  if (!exact) return;
+  if (!ready) return;
+  const code = exact ? exact.code : normCode(q.value);
+  if (!code) return;
   const n = setQty(qty.value);
-  const found = items.find(x => x.code === exact.code);
-  let flashCode = exact.code;
-  if (found) { found.qty = Math.min(99999, found.qty + n); showToast('Ya estaba en la lista: ahora son ' + found.qty + ' unidades de ' + exact.code + '.'); }
-  else { items.unshift({ code: exact.code, qty: n }); showToast('Agregado: ' + n + ' × ' + exact.code + '.'); }
+  const found = items.find(x => strip(x.code) === strip(code));
+  const flashCode = found ? found.code : code;
+  if (found) { found.qty = Math.min(99999, found.qty + n); showToast('Ya estaba en la lista: ahora son ' + found.qty + ' unidades de ' + found.code + '.'); }
+  else { items.unshift({ code, qty: n }); showToast((exact ? 'Agregado: ' : 'Agregado sin descripción: ') + n + ' × ' + code + '.'); }
   save(); render(flashCode);
   q.value = ''; setQty(1); updateEntry(); q.focus();
 }
@@ -311,11 +410,13 @@ function render(flashCode) {
         '<input class="field" type="number" inputmode="numeric" min="1" max="99999" value="' + it.qty + '" aria-label="Cantidad de ' + esc(it.code) + '">' +
         '<button type="button" data-act="inc" aria-label="Sumar una unidad de ' + esc(it.code) + '">+</button>' +
       '</div></td>' +
-      '<td class="desc">' + (p && p.desc ? esc(p.desc) : '<span class="nodesc">Sin descripción en el catálogo</span>') + '</td>' +
+      '<td class="desc">' + (p && p.desc ? esc(p.desc) : '<span class="nodesc">' + (p ? 'Sin descripción en el catálogo' : 'Sin descripción') + '</span>' + (p ? '' : '<span class="newtag">Código nuevo</span>')) + '</td>' +
       '<td class="xcell"><button type="button" class="del" data-act="del" aria-label="Quitar ' + esc(it.code) + ' de la lista">×</button></td>' +
       '</tr>';
   }).join('');
   emptyEl.hidden = items.length > 0;
+  if (!items.length) $('after').hidden = true;
+  showSaved();
   copyBtn.disabled = clearBtn.disabled = printBtn.disabled = items.length === 0;
   const units = items.reduce((a, x) => a + x.qty, 0);
   summary.textContent = items.length
@@ -380,6 +481,7 @@ q.addEventListener('keydown', e => {
     e.preventDefault();
     if (exact) { qty.focus(); qty.select(); }
     else if (matches.length) pick(matches[active >= 0 ? active : 0]);
+    else if (q.value.trim()) { qty.focus(); qty.select(); }
   } else if (e.key === 'Escape') { sug.hidden = true; q.setAttribute('aria-expanded', 'false'); }
 });
 sug.addEventListener('mousedown', e => e.preventDefault());
@@ -420,8 +522,9 @@ clearBtn.addEventListener('click', () => {
     armedTimer = setTimeout(disarm, 3500);
     return;
   }
-  disarm(); items = []; save(); render(); showToast('Lista vaciada.');
+  disarm(); resetList();
 });
+function resetList() { items = []; lastRemoved = null; save(); render(); showToast('Lista vaciada.'); }
 function disarm() { clearTimeout(armedTimer); clearBtn.classList.remove('armed'); clearBtn.textContent = 'Vaciar lista'; }
 
 printBtn.addEventListener('click', () => {
@@ -436,9 +539,14 @@ printBtn.addEventListener('click', () => {
   window.addEventListener('afterprint', restore);
   toast.hidden = true;
   window.print();
+  // El navegador no avisa si el PDF se guardó o se canceló: preguntamos.
+  $('after').hidden = false;
 });
+$('afterClear').addEventListener('click', () => { $('after').hidden = true; resetList(); q.focus(); });
+$('afterKeep').addEventListener('click', () => { $('after').hidden = true; q.focus(); });
 
 setQty(1); updateEntry(); render();
+load().then(() => { render(); updateEntry(); });
 </script>
 </body>
 </html>
